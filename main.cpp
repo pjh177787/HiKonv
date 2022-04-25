@@ -93,10 +93,10 @@ long long general_conv1d_test(int reps, int* feature, int kernel[k_dim], int out
     // for (int i = 0; i < 1000; i ++){
     //     general_convolution<f_dim, o_dim, k_dim>(feature, kernel, output);
     // }
-    int feature_gen[f_dim] = {};
+    // int feature_gen[f_dim] = {};
     long ts = nanos();
     for (int i = 0; i < reps; i ++){
-        general_convolution<f_dim, o_dim, k_dim>(feature_gen, kernel, output);
+        general_convolution<f_dim, o_dim, k_dim>(feature, kernel, output);
     }
     long tt = nanos();
 
@@ -195,7 +195,7 @@ void split_conv1d_32bit_p6q6_signed(uint4* feature, uint32 kernel, uint10* outpu
     feature_012 = feature[0] & 8191;
     feature_012 += ((feature[1] - sign(feature[0])) & 8191) << 13;
     feature_012 += ((feature[2] - sign(feature[1])) & 8191) << 26;
-    feature_012 += (0 - ((feature_012 >> 38) & 1)) << 39;
+    // feature_012 += (0 - ((feature_012 >> 38) & 1)) << 39;
     
     result_prev = kernel*feature_012;
 
@@ -554,7 +554,7 @@ int main(){
     const int w_out = w_in - 2;
 
     const int f_dim = 250000;
-    const int reps = 1;
+    const int reps = 100;
 
     long long ts = 0;
     long long tt = 0;
@@ -572,7 +572,7 @@ int main(){
         feature[i] = rand()%2;
         cout << feature[i] << " ";
         #else
-        feature[i] = rand()%4;
+        feature[i] = rand()%2;
         // cout << feature[i] << " ";
         #endif
     }
