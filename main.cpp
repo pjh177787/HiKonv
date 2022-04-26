@@ -10,7 +10,10 @@ using namespace std;
 
 // #define PRINT
 // #define PRINT_PROC
+// #define TEST_SIGN
 #define TEST_1D
+// #define USE_SEXT
+// #define USE_SEXT
 // #define TEST_2D
 // #define TEST_MISC
 // #define TEST_UNIT
@@ -18,15 +21,15 @@ using namespace std;
 #define INT_TEST
 
 #ifdef INT_TEST
-    typedef unsigned long long uint64;
-    typedef unsigned long long uint40;
-    typedef unsigned int uint32;
-    typedef unsigned int uint27;
-    typedef unsigned int uint20;
-    typedef unsigned int uint18;
-    typedef unsigned int uint10;
-    typedef unsigned int uint8;
-    typedef unsigned int uint4;
+    typedef long long uint64;
+    typedef long long uint40;
+    typedef long long uint32;
+    typedef long long uint27;
+    typedef long long uint20;
+    typedef long long uint18;
+    typedef long long uint10;
+    typedef long long uint8;
+    typedef long long uint4;
 #else
     typedef ap_uint<64> uint64;
     typedef ap_uint<40> uint40;
@@ -82,9 +85,9 @@ long long general_conv1d_test(int reps, int* feature, int kernel[k_dim], int out
     return (tt - ts)/reps;
 }
 
-void print_bin(string comment, uint64 n, int S) {
+void print_bin(string comment, unsigned long long n, int S) {
     int binaryNum[64];
-    uint64 n0 = n;
+    unsigned long long n0 = n;
     int i = 0;
     while (n > 0) {
         binaryNum[i] = n % 2;
@@ -114,6 +117,11 @@ int sign(uint64 num) {
     return num >> 63 & 1;
 }
 
+long long sext(unsigned long long num, int from_bits) {
+    unsigned long long ext = (0 - (num >> (from_bits - 1) & 1)) << from_bits;
+    return num | ext;
+}
+
 template<int F_DIM, int O_DIM>
 void split_conv1d_32bit_p8q8_signed(uint4* feature, uint32 kernel, uint10* output){
 
@@ -127,20 +135,38 @@ void split_conv1d_32bit_p8q8_signed(uint4* feature, uint32 kernel, uint10* outpu
 
     feature_012 = feature[0];
     feature_012 += feature[1] << 17;
+    // print_bin("feature_012", feature_012, 17);
 
     result_prev = kernel*feature_012;
+    // print_bin("result_prev", result_prev, 17);
 
     for (int col = 2; col < O_DIM + 2; col += 2){
         feature_345 = feature[col];
         feature_345 += feature[col + 1] << 17;
+        // print_bin("feature_345", feature_345, 17);
 
         result_this = kernel*feature_345;
+        // print_bin("result_this", result_this, 17);
+        // print_bin("result_prev", result_prev, 17);
+        // print_bin("result_this << 17", result_this << 17, 17);
+        // print_bin("result_prev >> 17", result_prev >> 17, 17);
         result = (result_prev >> 17) + (result_this << 17);
+        // print_bin("result", result, 17);
 
         int sign_2 = (result_prev >> 16) & 1;
         int sign_1 = (result >> 16) & 1;
-        output[col - 2] =  (result & 131071) + sign_2;
+        
+        #ifdef USE_SEXT
+        output[col - 2] = sext((result & 131071) + sign_2, 17);
+        output[col - 1] = sext(((result >> 17) & 131071) + sign_1, 17);
+        #else
+        output[col - 2] = (result & 131071) + sign_2;
         output[col - 1] = ((result >> 17) & 131071) + sign_1;
+        #endif
+        // print_bin("sign_2", sign_2, 17);
+        // print_bin("sign_1", sign_1, 17);
+        // print_bin("output[col - 2]", output[col - 2], 17);
+        // print_bin("output[col - 1]", output[col - 1], 17);
 
         result_prev = result_this;
     }
@@ -172,8 +198,14 @@ void split_conv1d_32bit_p7q7_signed(uint4* feature, uint32 kernel, uint10* outpu
 
         int sign_2 = (result_prev >> 14) & 1;
         int sign_1 = (result >> 14) & 1;
-        output[col - 2] =  (result & 32767) + sign_2;
+
+        #ifdef USE_SEXT
+        output[col - 2] = sext((result & 32767) + sign_2, 15);
+        output[col - 1] = sext(((result >> 15) & 32767) + sign_1, 15);
+        #else
+        output[col - 2] = (result & 32767) + sign_2;
         output[col - 1] = ((result >> 15) & 32767) + sign_1;
+        #endif
 
         result_prev = result_this;
     }
@@ -201,15 +233,22 @@ void split_conv1d_32bit_p6q6_signed(uint4* feature, uint32 kernel, uint10* outpu
         feature_345 += feature[col + 2] << 26;
 
         result_this = kernel*feature_345;
-        uint64 result_prev_shifted = ((0 - ((result_prev >> 63) & 1)) << 38) + (result_prev >> 26);
-        result = (result_this << 13) + result_prev_shifted;
+        // uint64 result_prev_shifted = ((0 - ((result_prev >> 63) & 1)) << 38) + (result_prev >> 26);
+        result = (result_this << 13) + (result_prev >> 26);
 
         int sign_3 = (result_prev >> 25) & 1;
         int sign_2 = (result >> 12) & 1;
         int sign_1 = (result >> 25) & 1;
-        output[col - 3] =  (result & 8191) + sign_3;
+
+        #ifdef USE_SEXT
+        output[col - 3] = sext((result & 8191) + sign_3, 13);
+        output[col - 2] = sext(((result >> 13) & 8191) + sign_2, 13);
+        output[col - 1] = sext(((result >> 26) & 8191) + sign_1, 13);
+        #else
+        output[col - 3] = (result & 8191) + sign_3;
         output[col - 2] = ((result >> 13) & 8191) + sign_2;
         output[col - 1] = ((result >> 26) & 8191) + sign_1;
+        #endif
 
         result_prev = result_this;
     }
@@ -243,9 +282,16 @@ void split_conv1d_32bit_p5q5_signed(uint4* feature, uint32 kernel, uint10* outpu
         int sign_3 = (result_prev >> 23) & 1;
         int sign_2 = (result >> 11) & 1;
         int sign_1 = (result >> 23) & 1;
-        output[col - 3] =  (result & 4095) + sign_3;
+
+        #ifdef USE_SEXT
+        output[col - 3] = sext((result & 4095) + sign_3, 12);
+        output[col - 2] = sext(((result >> 12) & 4095) + sign_2, 12);
+        output[col - 1] = sext(((result >> 24) & 4095) + sign_1, 12);
+        #else
+        output[col - 3] = (result & 4095) + sign_3;
         output[col - 2] = ((result >> 12) & 4095) + sign_2;
         output[col - 1] = ((result >> 24) & 4095) + sign_1;
+        #endif
 
         result_prev = result_this;
     }
@@ -278,9 +324,16 @@ void split_conv1d_32bit_p4q4_signed(uint4* feature, uint32 kernel, uint10* outpu
         int sign_3 = (result_prev >> 19) & 1;
         int sign_2 = (result >> 9) & 1;
         int sign_1 = (result >> 19) & 1;
-        output[col - 3] =  (result & 1023) + sign_3;
+
+        #ifdef USE_SEXT
+        output[col - 3] = sext((result & 1023) + sign_3, 10);
+        output[col - 2] = sext(((result >> 10) & 1023) + sign_2, 10);
+        output[col - 1] = sext(((result >> 20) & 1023) + sign_1, 10);
+        #else
+        output[col - 3] = (result & 1023) + sign_3;
         output[col - 2] = ((result >> 10) & 1023) + sign_2;
         output[col - 1] = ((result >> 20) & 1023) + sign_1;
+        #endif
 
         result_prev = result_this;
     }
@@ -316,10 +369,18 @@ void split_conv1d_32bit_p3q3_signed(uint4* feature, uint32 kernel, uint10* outpu
         int sign_3 = (result >> 7) & 1;
         int sign_2 = (result >> 15) & 1;
         int sign_1 = (result >> 23) & 1;
-        output[col - 4] =  (result & 255) + sign_4;
+
+        #ifdef USE_SEXT
+        output[col - 4] = sext((result & 255) + sign_4, 8);
+        output[col - 3] = sext(((result >> 8) & 255) + sign_3, 8);
+        output[col - 2] = sext(((result >> 16) & 255) + sign_2, 8);
+        output[col - 1] = sext(((result >> 24) & 255) + sign_1, 8);
+        #else
+        output[col - 4] = (result & 255) + sign_4;
         output[col - 3] = ((result >> 8) & 255) + sign_3;
         output[col - 2] = ((result >> 16) & 255) + sign_2;
         output[col - 1] = ((result >> 24) & 255) + sign_1;
+        #endif
 
         result_prev = result_this;
     }
@@ -358,11 +419,20 @@ void split_conv1d_32bit_p2q2_signed(uint4* feature, uint32 kernel, uint10* outpu
         int sign_3 = (result >> 13) & 1;
         int sign_2 = (result >> 20) & 1;
         int sign_1 = (result >> 27) & 1;
-        output[col - 5] =  (result & 127) + sign_5;
+
+        #ifdef USE_SEXT
+        output[col - 5] = sext((result & 127) + sign_5, 7);
+        output[col - 4] = sext(((result >> 7) & 127) + sign_4, 7);
+        output[col - 3] = sext(((result >> 14) & 127) + sign_3, 7);
+        output[col - 2] = sext(((result >> 21) & 127) + sign_2, 7);
+        output[col - 1] = sext(((result >> 28) & 127) + sign_1, 7);
+        #else
+        output[col - 5] = (result & 127) + sign_5;
         output[col - 4] = ((result >> 7) & 127) + sign_4;
         output[col - 3] = ((result >> 14) & 127) + sign_3;
         output[col - 2] = ((result >> 21) & 127) + sign_2;
         output[col - 1] = ((result >> 28) & 127) + sign_1;
+        #endif
 
         result_prev = result_this;
     }
@@ -717,9 +787,11 @@ long long dsp_conv1d_test_signed(int a_bits, int w_bits, int p_bits, int q_bits,
     for (int i = 0; i < o_dim; i ++){
         int val = output_4bit[i];
 
+#ifndef USE_SEXT
         if (val >> (s_bits - 1) & 1 || val >> s_bits & 1) {
             val = val - pow(2, s_bits);
-        } 
+        }
+#endif
         if ((int)val != output_gen[i]) {
             count ++;
             // cout << "MISMATCH @ i = " << i << ", " << val << " vs. " << output_gen[i] << endl;
@@ -850,7 +922,7 @@ int main(){
     const int w_out = w_in - 2;
 
     const int f_dim = 100000;
-    const int reps = 1000;
+    const int reps = 1;
 
     long long ts = 0;
     long long tt = 0;
@@ -868,7 +940,11 @@ int main(){
         feature[i] = rand()%5-5;
         cout << feature[i] << " ";
         #else
+        #ifdef TEST_SIGN
+        feature[i] = rand()%2-2;
+        #else
         feature[i] = rand()%2;
+        #endif
         #endif
     }
 
