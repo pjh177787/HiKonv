@@ -27,17 +27,6 @@ uint64_t nanos()
     return ns; 
 }
 
-template<int F_DIM, int O_DIM, int K_DIM>
-void general_convolution(int* feature, int kernel[K_DIM], int* output){
-    for (int col = 0; col < O_DIM; col ++){
-        int acc = 0;
-        for (int k_col = 0; k_col < K_DIM; k_col ++){
-            acc += (unsigned long long)feature[col + k_col]*(unsigned long long)kernel[k_col];
-        }
-        output[col] = acc;
-    }
-}
-
 template<int CH_IN, int CH_OUT, int H_IN, int W_IN, int H_OUT, int W_OUT>
 void general_conv2d(int feature[CH_IN][H_IN][W_IN], int kernel[CH_OUT][CH_IN][3][3], int output[CH_OUT][H_OUT][W_OUT]){
     for (int c_out = 0; c_out < CH_OUT; c_out ++){
@@ -155,7 +144,6 @@ void conv2d(int feature[CH_IN][H_IN][W_IN], int kernel[CH_OUT][CH_IN][3][3], int
                 }
             }
         }
-        // uint10 output3d_dsp[CH_OUT][H_OUT][W_OUT] = {};
         split_conv2d_32bit_unsigned<CH_IN, CH_OUT, H_IN, W_IN, H_OUT, W_OUT>(feature, kernel3d_012, output);
     } else {
         general_conv2d<CH_IN, CH_OUT, H_IN, W_IN, H_OUT, W_OUT>(feature, kernel, output);
@@ -208,6 +196,7 @@ void bundle(int feature_in[1][10][20], int feature_out[1][10][20], bool hikonv) 
     }
     for (int ch_out_t = 0; ch_out_t < CH_OUT; ch_out_t ++) {
         for (int ch_in_t = 0; ch_in_t < CH_IN; ch_in_t ++) {
+            int feature_temp[1][10][20] = {};
             int kernel_slice[1][1][3][3] = {};
             for (int k = 0; k < 3; k ++){
                 for (int l = 0; l < 3; l ++){
@@ -218,7 +207,12 @@ void bundle(int feature_in[1][10][20], int feature_out[1][10][20], bool hikonv) 
                 for (int w_t = 0; w_t < W_IN/20; w_t ++) {
                     int output[1][10][20] = {};
                     conv2d<1, 1, 10, 20, 10, 20>(feature_in, kernel_slice, output, hikonv);
-                    relu<1, 10, 20>(output, feature_out);
+                    relu<1, 10, 20>(output, feature_temp);
+                    for (int h = 0; h < 10; h ++) {
+                        for (int w = 0; w < 20; w ++) {
+                            feature_out[1][h][w] += feature_temp[1][h][w];
+                        }
+                    }
                 }
             }
         }
@@ -239,6 +233,7 @@ void bundle_maxpool(int feature_in[1][10][20], int feature_out[1][10][20], bool 
     }
     for (int ch_out_t = 0; ch_out_t < CH_OUT; ch_out_t ++) {
         for (int ch_in_t = 0; ch_in_t < CH_IN; ch_in_t ++) {
+            int feature_temp[1][10][20] = {};
             int kernel_slice[1][1][3][3] = {};
             for (int k = 0; k < 3; k ++){
                 for (int l = 0; l < 3; l ++){
@@ -251,7 +246,12 @@ void bundle_maxpool(int feature_in[1][10][20], int feature_out[1][10][20], bool 
                     int output_actv[1][10][20] = {};
                     conv2d<1, 1, 10, 20, 10, 20>(feature_in, kernel_slice, output, hikonv);
                     relu<1, 10, 20>(output, output_actv);
-                    maxpool<1, 10, 20>(output_actv, feature_out);
+                    maxpool<1, 10, 20>(output_actv, feature_temp);
+                    for (int h = 0; h < 5; h ++) {
+                        for (int w = 0; w < 10; w ++) {
+                            feature_out[1][h][w] += feature_temp[1][h][w];
+                        }
+                    }
                 }
             }
         }
@@ -357,23 +357,6 @@ int main(){
     }
     tt = nanos();
 
-    #ifdef PRINT
-    cout << "Output:" << endl;
-    for (int i = 0; i < c_out; i ++){
-        for (int j = 0; j < h_out; j ++){
-            for (int k = 0; k < w_out; k ++){
-                cout << output3d[i][j][k] << " ";
-            }
-            cout << endl;
-        }
-        cout << endl;
-    }
-    cout << endl;
-    // for (int i = 0; i < o_dim; i ++){
-    //     print_bin(output[i]);
-    // }    
-    #endif
-
     cout << "Elapsed: " << (tt - ts)/reps << " ns" << endl;
     cout << "======================================" << endl;
     cout << endl << "======================================" << endl;
@@ -388,34 +371,7 @@ int main(){
     }
     tt = nanos();
 
-    #ifdef PRINT
-    cout << "Output: " << endl;
-    for (int i = 0; i < c_out; i ++){
-        for (int j = 0; j < h_out; j ++){
-            for (int k = 0; k < w_out; k ++){
-                cout << output3d_dsp[i][j][k] << " ";
-            }
-            cout << endl;
-        }
-        cout << endl;
-    }
-    #endif
-
     cout << "Elapsed: " << (tt - ts)/reps << " ns" << endl;
-    // count = 0;
-    // for (int i = 0; i < 36; i ++){
-    //     for (int j = 0; j < 10; j ++){
-    //         for (int k = 0; k < 20; k ++){
-    //             if ((int)output3d_dsp[i][j][k] != output3d[i][j][k]) {
-    //                 count ++;
-    //                 // cout << "MISMATCH @ (i, j, k) = (" << i << ", " << j << ", " << k << ")  " << output3d_dsp[i][j][k] << " vs. " << output3d[i][j][k] << endl;
-    //             }
-    //         }
-    //     }
-    // }
-    
-    // if (count == 0) cout << "ALL TEST PASS" << endl;
-    // else cout << count << " TESTS FAIL" << endl;
     cout << "======================================" << endl << endl;
 
     return 0;
